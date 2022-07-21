@@ -14,6 +14,8 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 
 #define handle_error(msg) { fprintf(stderr, "%s %s(%d)\n", msg, strerror(errno), errno); exit(1); }
 const char* pathname = "/tmp/container1/uds";
@@ -81,10 +83,36 @@ void send_fd(int uds, int xsk)
 		handle_error("error sending socket");
 }
 
+int get_pid(int uds)
+{
+	int len;
+	struct ucred ucred;
+
+	len = sizeof(struct ucred);
+
+	if (getsockopt(uds, SOL_SOCKET, SO_PEERCRED, &ucred, &len) == -1) {
+		handle_error("error getting peer pid");
+	}
+
+	printf("got peer pid %d\n", ucred.pid);
+	return ucred.pid;
+
+}
+
+void set_limit(int pid, long limit)
+{
+	struct rlimit rlimit = {.rlim_cur=limit, .rlim_max=limit};
+	int err = prlimit(pid, RLIMIT_MEMLOCK, &rlimit, NULL);
+	if(err)
+		handle_error("setting limit failed");
+}
+
 int main()
 {
 	printf("getting uds \n");
 	int uds = make_uds(pathname);
+	int pid = get_pid(uds);
+	set_limit(pid, 1l<<34); //4G
 	printf("got uds %d\n", uds);
 	int xsk = xdp_socket();
 	printf("got xsk %d\n", xsk);
