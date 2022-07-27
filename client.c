@@ -15,29 +15,15 @@
 #include <unistd.h>
 #include <linux/if_xdp.h>
 #include <sys/mman.h>
+#include <stdlib.h>
+#include <fcntl.h>
 
 #define handle_error(msg) { fprintf(stderr, "%s %s(%d)\n", msg, strerror(errno), errno); exit(1); }
 const char* pathname = "/shared/uds";
 
-#define RING_SIZE 1024
+#define RING_SIZE 2048
+#include "xsk_ops.h" //needs RING_SIZE
 
-struct umem_ring {
-	__u32 cached_prod;
-	__u32 cached_cons; //actually `size` bigger than consumer
-	__u32 size;
-	__u32 *producer;
-	__u32 *consumer;
-	__u64 *ring;
-};
-
-struct kernel_ring {
-	__u32 cached_prod;
-	__u32 cached_cons; //actually `size` bigger than consumer
-	__u32 size;
-	__u32 *producer;
-	__u32 *consumer;
-	struct xdp_desc *ring;
-};
 int get_uds(const char* path)
 {
 	int fd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -93,7 +79,7 @@ int get_fd(int uds)
 	fd = *(int *)CMSG_DATA(cmsg);
 	return fd;
 }
-void set_umem(int xsk, long size)
+void* set_umem(int xsk, long size)
 {
 	// should be page-aligned
 	void* umem = mmap(NULL,
@@ -111,6 +97,7 @@ void set_umem(int xsk, long size)
 	if(setsockopt(xsk, SOL_XDP, XDP_UMEM_REG, &umem_reg, sizeof(umem_reg))){
 		handle_error("setting umem failed");
 	}
+	return umem;
 }
 
 void setup_rings(int xsk, struct umem_ring *fill, struct umem_ring *com, struct kernel_ring *rx)
@@ -133,7 +120,6 @@ void setup_rings(int xsk, struct umem_ring *fill, struct umem_ring *com, struct 
 	if(setsockopt(xsk, SOL_XDP, XDP_RX_RING, &rx_ring_size, sizeof(int)) < 0){
 		handle_error("setting rx ring failed");
 	}
-
 
 
 	struct xdp_mmap_offsets offs;
@@ -185,8 +171,59 @@ void setup_rings(int xsk, struct umem_ring *fill, struct umem_ring *com, struct 
 	rx->consumer = rx_map + offs.rx.consumer;
 	rx->ring = rx_map + offs.rx.desc;
 	rx->cached_prod = 0;
-	rx->cached_cons = RING_SIZE;
+	rx->cached_cons = 0;
+
+	int num_reserved = xsk_umem_prod_reserve(fill, RING_SIZE/2);
+	printf("Reserved %d slots in the umem\n", num_reserved);
+	for (int i=0; i<num_reserved; i++)
+	{
+		xsk_umem_prod_write(fill, i * 4096);
+	}
+	xsk_umem_prod_submit(fill, num_reserved);
 	
+}
+
+int get_ifindex()
+{
+	char buf[16];
+	int ifidx_file = open("/sys/class/net/eth0/ifindex", O_RDONLY);
+	if(ifidx_file < 0)
+		handle_error("error opening eth0 ifindex file");
+	int err = read(ifidx_file, buf, sizeof(buf));
+	if(err <= 0)
+		handle_error("error reading ifindex file");
+	int ifidx = atoi(buf);
+	if(ifidx == 0)
+		handle_error("error converting ifindex");
+	return ifidx;
+
+}
+
+void send_msg(int uds, int ifindex)
+{
+	const char* raw_msg = "bind ifidx %d pls :)";
+	char buf[64] = {0};
+	int ssize = sprintf(buf, raw_msg, ifindex);
+	int bytes_written = write(uds, buf, ssize);
+	if(bytes_written <= 0)
+		handle_error("error asking for bind");
+}
+
+void dumb_poll(void* umem, struct umem_ring *fill, struct kernel_ring *rx)
+{
+	while(1)
+	{
+		sleep(1);
+		int recv_packets = xsk_kr_cons_peek(rx, 1);
+		printf("recieved %d packets\n", recv_packets);
+		if(recv_packets)
+		{
+			struct xdp_desc* desc = xsk_umem_cons_read(rx);
+			printf("got packet with addr %p, len %d\n",(void*) desc->addr, desc->len);
+		}
+		xsk_kr_cons_release(rx, recv_packets);
+
+	}
 }
 
 int main()
@@ -195,11 +232,16 @@ int main()
 	printf("got uds %d\n", uds);
 	int xsk = get_fd(uds);
 	printf("got xsk %d\n", xsk);
-	set_umem(xsk, 4096l * 1096l);
+	void* umem = set_umem(xsk, 4096l * (long)RING_SIZE);
 	printf("umem set\n");
 	struct umem_ring fill, com;
 	struct kernel_ring rx;
 	setup_rings(xsk, &fill, &com, &rx);
 	printf("set up rings\n");
+	int ifidx = get_ifindex();
+	send_msg(uds, ifidx);
+
+	dumb_poll(umem, &fill, &rx);
+	sleep(500);
 
 }
