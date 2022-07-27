@@ -38,6 +38,19 @@ struct kernel_ring {
 int prod_idx=0;
 int cons_idx=0;
 
+static inline __u32 debug_umem_cons(struct umem_ring* u)
+{
+	__u32 res;
+	res = smp_load_acquire(u->consumer);
+	return res;
+}	
+static inline __u32 debug_umem_prod(struct umem_ring* u)
+{
+	__u32 res;
+	res = smp_load_acquire(u->producer);
+	return res;
+}	
+
 static inline __u32 xsk_umem_prod_nb_free(struct umem_ring *r, __u32 nb)
 {
 	__u32 free_entries = r->cached_cons - r->cached_prod;

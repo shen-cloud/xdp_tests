@@ -173,6 +173,7 @@ void setup_rings(int xsk, struct umem_ring *fill, struct umem_ring *com, struct 
 	rx->cached_prod = 0;
 	rx->cached_cons = 0;
 
+	printf("debugging producer for fill: %d\n", debug_umem_prod(fill));
 	int num_reserved = xsk_umem_prod_reserve(fill, RING_SIZE/2);
 	printf("Reserved %d slots in the umem\n", num_reserved);
 	for (int i=0; i<num_reserved; i++)
@@ -180,6 +181,8 @@ void setup_rings(int xsk, struct umem_ring *fill, struct umem_ring *com, struct 
 		xsk_umem_prod_write(fill, i * 4096);
 	}
 	xsk_umem_prod_submit(fill, num_reserved);
+	printf("debugging producer for fill: %d\n", debug_umem_prod(fill));
+	printf("debugging consumer for fill: %d\n", debug_umem_cons(fill));
 	
 }
 
@@ -209,19 +212,38 @@ void send_msg(int uds, int ifindex)
 		handle_error("error asking for bind");
 }
 
-void dumb_poll(void* umem, struct umem_ring *fill, struct kernel_ring *rx)
+void dumb_poll(int xsk, void* umem, struct umem_ring *fill, struct kernel_ring *rx)
 {
 	while(1)
 	{
 		sleep(1);
-		int recv_packets = xsk_kr_cons_peek(rx, 1);
-		printf("recieved %d packets\n", recv_packets);
+		//printf("debugging consumer for fill: %d\n", debug_umem_cons(fill));
+		int recv_packets = xsk_kr_cons_peek(rx, 1024);
+		//printf("recieved %d packets\n", recv_packets);
 		if(recv_packets)
 		{
 			struct xdp_desc* desc = xsk_umem_cons_read(rx);
 			printf("got packet with addr %p, len %d\n",(void*) desc->addr, desc->len);
 		}
 		xsk_kr_cons_release(rx, recv_packets);
+
+		struct xdp_statistics stats;
+		socklen_t optlen = sizeof(stats);
+		int err = getsockopt(xsk, SOL_XDP, XDP_STATISTICS, &stats, &optlen);
+		if (err)
+			handle_error("error getting socket stats");
+
+		if (optlen == sizeof(struct xdp_statistics)) {
+			printf("xsk stats: rx dropped %ld, rx invalid %ld, rx invalid %ld, rx ring full %ld, rx fill ring empty %ld, tx ring empty %ld\n",
+				stats.rx_dropped,
+				stats.rx_invalid_descs,
+				stats.tx_invalid_descs,
+				stats.rx_ring_full,
+				stats.rx_fill_ring_empty_descs,
+				stats.tx_ring_empty_descs
+			);
+		}
+
 
 	}
 }
@@ -241,7 +263,7 @@ int main()
 	int ifidx = get_ifindex();
 	send_msg(uds, ifidx);
 
-	dumb_poll(umem, &fill, &rx);
+	dumb_poll(xsk, umem, &fill, &rx);
 	sleep(500);
 
 }

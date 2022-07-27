@@ -1,5 +1,5 @@
 
-clang -lelf -lbpf make_map.c -o make_map.o -ggdb3
+clang -lelf -lbpf make_map.c -o make_map.o -ggdb3 
 clang -Wall socket.c -o socket.o -fsanitize=address
 clang -Wall client.c -o client.o -static
 clang -O2 -g -Wall -target bpf -c host_redirect.c -o xdp_prog.o

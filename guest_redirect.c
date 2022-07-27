@@ -29,7 +29,7 @@ char fmt3[] = "redirect returned %d\n";
 
 
 SEC("xdp")
-int xdp_nop(struct xdp_md *ctx)
+int xdp_redirect(struct xdp_md *ctx)
 {
 	int idx = 0;
 
@@ -38,7 +38,7 @@ int xdp_nop(struct xdp_md *ctx)
 	if(rec)
 	{
 		bpf_trace_printk(fmt2, sizeof(fmt2));
-		int result =  bpf_redirect(*rec, XDP_PASS);
+		int result =  bpf_redirect_map(&xsk_map, idx, 0);
 		bpf_trace_printk(fmt3, sizeof(fmt3), result);
 		return result;
 	}
