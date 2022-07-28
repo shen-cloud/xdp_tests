@@ -26,7 +26,7 @@
 #define handle_error(msg) { fprintf(stderr, "%s %s(%d)\n", msg, strerror(errno), errno); exit(1); }
 const char* pathname = "/shared/uds";
 
-#define RING_SIZE 2048
+#define RING_SIZE 512
 #include "xsk_ops.h" //needs RING_SIZE
 
 int get_uds(const char* path)
@@ -219,36 +219,46 @@ void send_msg(int uds, int ifindex)
 
 void dumb_poll(int xsk, void* umem, struct umem_ring *fill, struct kernel_ring *rx)
 {
+	int packets = 0;
 	while(1)
 	{
 		sleep(1);
 		//printf("debugging consumer for fill: %d\n", debug_umem_cons(fill));
-		int recv_packets = xsk_kr_cons_peek(rx, 1024);
+		int recv_packets = xsk_kr_cons_peek(rx, RING_SIZE/3);
 		if(recv_packets)
 		{
-			printf("recieved %d packets\n", recv_packets);
+			printf("Recieved %d packets\n", recv_packets);
+			int num_reserved = xsk_umem_prod_reserve(fill, recv_packets);
+			printf("Reserved %d slots in the umem\n", num_reserved);
 			for (int i=0; i<recv_packets; i++)
 			{
-				struct xdp_desc* desc = xsk_umem_cons_read(rx);
+				packets++;
+				struct xdp_desc* desc = xsk_kr_cons_read(rx);
 				printf("got packet with addr %p, len %d\n",(void*) desc->addr, desc->len);
 				__u64 addr = desc->addr;
+				__u64 original = addr &  XSK_UNALIGNED_BUF_ADDR_MASK;
 				printf("extracted addr: %p, packet offset = %p\n", addr & XSK_UNALIGNED_BUF_ADDR_MASK, (addr & XSK_UNALIGNED_BUF_ADDR_MASK) + (addr >> XSK_UNALIGNED_BUF_OFFSET_SHIFT));
 				char* pkt = (char*)umem + (addr & XSK_UNALIGNED_BUF_ADDR_MASK);
-				printf("looked for packet at %p\n", pkt);
+				printf("looking for packet at %p\n", pkt);
 				struct ethhdr *eth = (struct ethhdr *)pkt;
 				if (ntohs(eth->h_proto) != ETH_P_IP) {
-					return;
+					xsk_umem_prod_write(fill, original);
+					printf("got a non IP packet\n");
+					continue;
 				}
 				struct iphdr *ipv4 = (struct iphdr *)(eth + 1);
 				struct in_addr ip;
 				memcpy(&ip, &ipv4->saddr, sizeof(ip));
 				char *s = inet_ntoa(ip);
 				printf("Got IP: %s\n", s);
+				xsk_umem_prod_write(fill, original);
 			}
+			xsk_kr_cons_release(rx, recv_packets);
+			xsk_umem_prod_submit(fill, num_reserved);
+			printf("debugging producer for fill: %d\n", debug_umem_prod(fill));
+			printf("debugging consumer for fill: %d\n", debug_umem_cons(fill));
 		}
-		xsk_kr_cons_release(rx, recv_packets);
 
-		/*
 		struct xdp_statistics stats;
 		socklen_t optlen = sizeof(stats);
 		int err = getsockopt(xsk, SOL_XDP, XDP_STATISTICS, &stats, &optlen);
@@ -265,7 +275,7 @@ void dumb_poll(int xsk, void* umem, struct umem_ring *fill, struct kernel_ring *
 				stats.tx_ring_empty_descs
 			);
 		}
-		*/
+		printf("PACKETS: %d\n", packets);
 
 
 	}
