@@ -88,7 +88,7 @@ static inline void xsk_umem_ring_prod_write(struct umem_ring *prod, __u64 nb)
 */
 static inline void xsk_umem_prod_write(struct umem_ring *prod, __u64 val)
 {
-	prod->ring[prod_idx++ & RING_SIZE-1] = val;
+	prod->ring[prod_idx++ & (RING_SIZE*4096l)-1] = val;
 }
 static inline void xsk_umem_prod_submit(struct umem_ring *prod, __u32 nb)
 {
@@ -125,7 +125,7 @@ static inline __u32 xsk_kr_cons_peek(struct kernel_ring *cons, __u32 nb)
 
 static inline struct xdp_desc* xsk_umem_cons_read(struct kernel_ring *cons)
 {
-	return &cons->ring[cons_idx++ & RING_SIZE-1];
+	return &cons->ring[cons_idx++ & (RING_SIZE*4096)-1];
 }
 
 static inline void xsk_kr_cons_release(struct kernel_ring *cons, __u32 nb)

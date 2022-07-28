@@ -17,6 +17,11 @@
 #include <sys/mman.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <linux/if_ether.h>
+#include <linux/ip.h>
+#include <arpa/inet.h>
+
+
 
 #define handle_error(msg) { fprintf(stderr, "%s %s(%d)\n", msg, strerror(errno), errno); exit(1); }
 const char* pathname = "/shared/uds";
@@ -219,14 +224,31 @@ void dumb_poll(int xsk, void* umem, struct umem_ring *fill, struct kernel_ring *
 		sleep(1);
 		//printf("debugging consumer for fill: %d\n", debug_umem_cons(fill));
 		int recv_packets = xsk_kr_cons_peek(rx, 1024);
-		//printf("recieved %d packets\n", recv_packets);
 		if(recv_packets)
 		{
-			struct xdp_desc* desc = xsk_umem_cons_read(rx);
-			printf("got packet with addr %p, len %d\n",(void*) desc->addr, desc->len);
+			printf("recieved %d packets\n", recv_packets);
+			for (int i=0; i<recv_packets; i++)
+			{
+				struct xdp_desc* desc = xsk_umem_cons_read(rx);
+				printf("got packet with addr %p, len %d\n",(void*) desc->addr, desc->len);
+				__u64 addr = desc->addr;
+				printf("extracted addr: %p, packet offset = %p\n", addr & XSK_UNALIGNED_BUF_ADDR_MASK, (addr & XSK_UNALIGNED_BUF_ADDR_MASK) + (addr >> XSK_UNALIGNED_BUF_OFFSET_SHIFT));
+				char* pkt = (char*)umem + (addr & XSK_UNALIGNED_BUF_ADDR_MASK);
+				printf("looked for packet at %p\n", pkt);
+				struct ethhdr *eth = (struct ethhdr *)pkt;
+				if (ntohs(eth->h_proto) != ETH_P_IP) {
+					return;
+				}
+				struct iphdr *ipv4 = (struct iphdr *)(eth + 1);
+				struct in_addr ip;
+				memcpy(&ip, &ipv4->saddr, sizeof(ip));
+				char *s = inet_ntoa(ip);
+				printf("Got IP: %s\n", s);
+			}
 		}
 		xsk_kr_cons_release(rx, recv_packets);
 
+		/*
 		struct xdp_statistics stats;
 		socklen_t optlen = sizeof(stats);
 		int err = getsockopt(xsk, SOL_XDP, XDP_STATISTICS, &stats, &optlen);
@@ -243,6 +265,7 @@ void dumb_poll(int xsk, void* umem, struct umem_ring *fill, struct kernel_ring *
 				stats.tx_ring_empty_descs
 			);
 		}
+		*/
 
 
 	}
