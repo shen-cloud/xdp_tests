@@ -26,7 +26,7 @@
 #define handle_error(msg) { fprintf(stderr, "%s %s(%d)\n", msg, strerror(errno), errno); exit(1); }
 const char* pathname = "/shared/uds";
 
-#define RING_SIZE 512
+#define RING_SIZE 2048
 #include "xsk_ops.h" //needs RING_SIZE
 
 int get_uds(const char* path)
@@ -179,7 +179,7 @@ void setup_rings(int xsk, struct umem_ring *fill, struct umem_ring *com, struct 
 	rx->cached_cons = 0;
 
 	printf("debugging producer for fill: %d\n", debug_umem_prod(fill));
-	int num_reserved = xsk_umem_prod_reserve(fill, RING_SIZE/2);
+	int num_reserved = xsk_umem_prod_reserve(fill, RING_SIZE);
 	printf("Reserved %d slots in the umem\n", num_reserved);
 	for (int i=0; i<num_reserved; i++)
 	{

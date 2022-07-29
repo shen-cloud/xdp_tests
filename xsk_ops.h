@@ -126,7 +126,7 @@ static inline __u32 xsk_kr_cons_peek(struct kernel_ring *cons, __u32 nb)
 
 static inline struct xdp_desc* xsk_kr_cons_read(struct kernel_ring *cons)
 {
-	return &cons->ring[cons_idx++ & (RING_SIZE*4096)-1];
+	return &cons->ring[cons_idx++ & (RING_SIZE)-1];
 }
 
 static inline void xsk_kr_cons_release(struct kernel_ring *cons, __u32 nb)
