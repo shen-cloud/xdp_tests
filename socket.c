@@ -191,7 +191,35 @@ void add_to_xsk_map(int xsk, const char* xsk_map_path)
 
 }
 
-int main()
+void add_to_dev_map(const char* dev_map_path, int port, int ifidx)
+{
+
+	union bpf_attr attr;
+	int queue = 0;
+	int port_copy = port;
+
+	memset(&attr, 0, sizeof(attr));
+	attr.pathname = ((void *)dev_map_path);
+
+	int fd = syscall(__NR_bpf, BPF_OBJ_GET, &attr, sizeof(attr));
+	if(fd < 0)
+		handle_error("error opening dev map");
+
+	printf("got a fd to the map at %d\n", fd);
+	memset(&attr, 0, sizeof(attr));
+	attr.map_fd = fd;
+	attr.key = &port_copy;
+	attr.value = port_copy;
+	attr.flags = BPF_ANY;
+	int err = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &attr, sizeof(attr));
+	if(err)
+		handle_error("error setting map");
+	printf("set up xsk map\n");
+
+
+}
+
+int main(int argc, char** argv)
 {
 	printf("getting uds \n");
 	int uds = make_uds(pathname);
@@ -206,6 +234,8 @@ int main()
 	add_to_xsk_map(xsk, XSK_PATH);
 	bind_xsk(xsk, ifidx);
 
+	// char* args[] = {"/bin/bash", NULL};
+	// execvp(args[0], args);
 	char* args[] = {"/bin/bash", NULL};
 	execvp(args[0], args);
 }

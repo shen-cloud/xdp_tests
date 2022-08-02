@@ -26,6 +26,7 @@
 #define handle_error(msg) { fprintf(stderr, "%s %s(%d)\n", msg, strerror(errno), errno); exit(1); }
 const char* pathname = "/shared/uds";
 
+#define DEBUG 0
 #define RING_SIZE 2048
 #include "xsk_ops.h" //needs RING_SIZE
 
@@ -178,16 +179,20 @@ void setup_rings(int xsk, struct umem_ring *fill, struct umem_ring *com, struct 
 	rx->cached_prod = 0;
 	rx->cached_cons = 0;
 
-	printf("debugging producer for fill: %d\n", debug_umem_prod(fill));
+	//printf("debugging producer for fill: %d\n", debug_umem_prod(fill));
 	int num_reserved = xsk_umem_prod_reserve(fill, RING_SIZE);
-	printf("Reserved %d slots in the umem\n", num_reserved);
+	if(DEBUG) {
+		printf("Reserved %d slots in the umem\n", num_reserved);
+	}
 	for (int i=0; i<num_reserved; i++)
 	{
 		xsk_umem_prod_write(fill, i * 4096);
 	}
 	xsk_umem_prod_submit(fill, num_reserved);
-	printf("debugging producer for fill: %d\n", debug_umem_prod(fill));
-	printf("debugging consumer for fill: %d\n", debug_umem_cons(fill));
+	if(DEBUG) {
+		printf("debugging producer for fill: %d\n", debug_umem_prod(fill));
+		printf("debugging consumer for fill: %d\n", debug_umem_cons(fill));
+	}
 	
 }
 
@@ -220,62 +225,83 @@ void send_msg(int uds, int ifindex)
 void dumb_poll(int xsk, void* umem, struct umem_ring *fill, struct kernel_ring *rx)
 {
 	int packets = 0;
+	int j=0; // print out stats slowly
 	while(1)
 	{
-		sleep(1);
+		if(DEBUG)
+		{
+			sleep(1);
+		}
 		//printf("debugging consumer for fill: %d\n", debug_umem_cons(fill));
 		int recv_packets = xsk_kr_cons_peek(rx, RING_SIZE/3);
 		if(recv_packets)
 		{
-			printf("Recieved %d packets\n", recv_packets);
 			int num_reserved = xsk_umem_prod_reserve(fill, recv_packets);
-			printf("Reserved %d slots in the umem\n", num_reserved);
+			if(DEBUG) {
+				printf("Recieved %d packets\n", recv_packets);
+				printf("Reserved %d slots in the umem\n", num_reserved);
+			}
 			for (int i=0; i<recv_packets; i++)
 			{
 				packets++;
 				struct xdp_desc* desc = xsk_kr_cons_read(rx);
-				printf("got packet with addr %p, len %d\n",(void*) desc->addr, desc->len);
+				if(DEBUG) {
+					printf("got packet with addr %p, len %d\n",(void*) desc->addr, desc->len);
+				}
 				__u64 addr = desc->addr;
 				__u64 original = addr &  XSK_UNALIGNED_BUF_ADDR_MASK;
-				printf("extracted addr: %p, packet offset = %p\n", addr & XSK_UNALIGNED_BUF_ADDR_MASK, (addr & XSK_UNALIGNED_BUF_ADDR_MASK) + (addr >> XSK_UNALIGNED_BUF_OFFSET_SHIFT));
+				if(DEBUG) {
+					printf("extracted addr: %p, packet offset = %p\n", addr & XSK_UNALIGNED_BUF_ADDR_MASK, (addr & XSK_UNALIGNED_BUF_ADDR_MASK) + (addr >> XSK_UNALIGNED_BUF_OFFSET_SHIFT));
+				}
 				char* pkt = (char*)umem + (addr & XSK_UNALIGNED_BUF_ADDR_MASK);
-				printf("looking for packet at %p\n", pkt);
+
+				if(DEBUG) {
+					printf("looking for packet at %p\n", pkt);
+				}
 				struct ethhdr *eth = (struct ethhdr *)pkt;
 				if (ntohs(eth->h_proto) != ETH_P_IP) {
 					xsk_umem_prod_write(fill, original);
-					printf("got a non IP packet\n");
+					if(DEBUG) {
+						printf("got a non IP packet\n");
+					}
 					continue;
 				}
 				struct iphdr *ipv4 = (struct iphdr *)(eth + 1);
 				struct in_addr ip;
 				memcpy(&ip, &ipv4->saddr, sizeof(ip));
 				char *s = inet_ntoa(ip);
-				printf("Got IP: %s\n", s);
+				if(DEBUG) {
+					printf("Got IP: %s\n", s);
+				}
 				xsk_umem_prod_write(fill, original);
 			}
 			xsk_kr_cons_release(rx, recv_packets);
 			xsk_umem_prod_submit(fill, num_reserved);
-			printf("debugging producer for fill: %d\n", debug_umem_prod(fill));
-			printf("debugging consumer for fill: %d\n", debug_umem_cons(fill));
+			if(DEBUG) {
+				printf("debugging producer for fill: %d\n", debug_umem_prod(fill));
+				printf("debugging consumer for fill: %d\n", debug_umem_cons(fill));
+			}
 		}
 
-		struct xdp_statistics stats;
-		socklen_t optlen = sizeof(stats);
-		int err = getsockopt(xsk, SOL_XDP, XDP_STATISTICS, &stats, &optlen);
-		if (err)
-			handle_error("error getting socket stats");
+		if(DEBUG || (j++ == 100)) {
+			struct xdp_statistics stats;
+			socklen_t optlen = sizeof(stats);
+			int err = getsockopt(xsk, SOL_XDP, XDP_STATISTICS, &stats, &optlen);
+			if (err)
+				handle_error("error getting socket stats");
 
-		if (optlen == sizeof(struct xdp_statistics)) {
-			printf("xsk stats: rx dropped %ld, rx invalid %ld, rx invalid %ld, rx ring full %ld, rx fill ring empty %ld, tx ring empty %ld\n",
-				stats.rx_dropped,
-				stats.rx_invalid_descs,
-				stats.tx_invalid_descs,
-				stats.rx_ring_full,
-				stats.rx_fill_ring_empty_descs,
-				stats.tx_ring_empty_descs
-			);
+			if (optlen == sizeof(struct xdp_statistics)) {
+				printf("xsk stats: rx dropped %ld, rx invalid %ld, rx invalid %ld, rx ring full %ld, rx fill ring empty %ld, tx ring empty %ld\n",
+					stats.rx_dropped,
+					stats.rx_invalid_descs,
+					stats.tx_invalid_descs,
+					stats.rx_ring_full,
+					stats.rx_fill_ring_empty_descs,
+					stats.tx_ring_empty_descs
+				);
+			}
+			printf("PACKETS: %d\n", packets);
 		}
-		printf("PACKETS: %d\n", packets);
 
 
 	}

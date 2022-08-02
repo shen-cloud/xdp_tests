@@ -33,9 +33,9 @@ int xdp_redirect(struct xdp_md *ctx)
 {
 	int idx = 0;
 
-	bpf_trace_printk(fmt1, sizeof(fmt1));
+	// bpf_trace_printk(fmt1, sizeof(fmt1));
 	int result =  bpf_redirect_map(&xsk_map, idx, XDP_PASS);
-	bpf_trace_printk(fmt3, sizeof(fmt3), result);
+	//bpf_trace_printk(fmt3, sizeof(fmt3), result);
 	/*
 	int* rec = bpf_map_lookup_elem(&xsk_map, &idx);
 	if(rec)

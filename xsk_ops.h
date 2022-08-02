@@ -88,7 +88,7 @@ static inline void xsk_umem_ring_prod_write(struct umem_ring *prod, __u64 nb)
 */
 static inline void xsk_umem_prod_write(struct umem_ring *prod, __u64 val)
 {
-	printf("writing %p to umem ring slot %d\n", val, prod_idx & (RING_SIZE)-1);
+	//printf("writing %p to umem ring slot %d\n", val, prod_idx & (RING_SIZE)-1);
 	prod->ring[prod_idx++ & (RING_SIZE)-1] = val;
 }
 static inline void xsk_umem_prod_submit(struct umem_ring *prod, __u32 nb)
