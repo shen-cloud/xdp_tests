@@ -6,22 +6,22 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <libgen.h>
-#include <net/if.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
-#include <linux/if_link.h>
-#include <linux/if_xdp.h>
 
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <sys/un.h>
+#include <sys/wait.h>
 #include <linux/bpf.h>
+#include <linux/if_link.h>
+#include <linux/if_xdp.h>
+#include <net/if.h>
 
 #define handle_error(msg) { fprintf(stderr, "%s %s(%d)\n", msg, strerror(errno), errno); exit(1); }
 const char* pathname = "/tmp/container1/uds";
@@ -219,6 +219,41 @@ void add_to_dev_map(const char* dev_map_path, int port, int ifidx)
 
 }
 
+void exec_as_child(const char** args, int num_args)
+{
+	
+	int pid = fork();
+	if(pid < 0)
+		handle_error("error forking new process");
+	if(pid == 0)
+	{
+		//child
+		printf("In child, calling %s\n", args[0]);
+		printf("executing command: <");
+		for(int i=0; i<num_args; i++)
+		{
+			printf("%s, ", args[i]);
+		}
+		printf(">\n");
+		execvp(args[0], args);
+		printf("UNREACHABLE!!!\n");
+	}
+	else
+	{
+		printf("waiting for child to return\n");
+		wait(NULL);
+		printf("child returned\n");
+	}
+}
+
+void load_xdp_program(const char* file, const char* section)
+{
+	const char *args1[] = {"ip", "link", "set", "dev", "eth0", "xdp", "none", NULL};
+	exec_as_child(args1, sizeof(args1)/sizeof(args1[0]));
+	const char *args2[] = {"ip", "link", "set", "dev", "eth0", "xdp", "obj", file, "sec", section, NULL};
+	exec_as_child(args2, sizeof(args2)/sizeof(args2[0]));
+}
+
 int main(int argc, char** argv)
 {
 	printf("getting uds \n");
@@ -233,9 +268,10 @@ int main(int argc, char** argv)
 	int ifidx = wait_for_msg(uds);
 	add_to_xsk_map(xsk, XSK_PATH);
 	bind_xsk(xsk, ifidx);
+	load_xdp_program("./guest_prog.o", "xdp");
 
 	// char* args[] = {"/bin/bash", NULL};
 	// execvp(args[0], args);
-	char* args[] = {"/bin/bash", NULL};
-	execvp(args[0], args);
+	// char* args[] = {"ip", "addr", "show", NULL};
+	// execvp(args[0], args);
 }
