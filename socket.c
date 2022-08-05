@@ -27,6 +27,7 @@
 const char* pathname = "/tmp/container1/uds";
 #define QUEUE 0
 #define XSK_PATH "/sys/fs/bpf/xdp/globals/xsk_map"
+#define OLD_KERNEL 1
 
 
 int make_uds(const char* path)
@@ -55,10 +56,18 @@ int make_uds(const char* path)
 
 void enter_ns(int pid)
 {
-	// could open /sys/<pid>/ns instead
+#if OLD_KERNEL
+	char buf[1000] = {0};
+	sprintf(buf, "/proc/%d/ns/net", pid);
+	int fd = open(buf, O_RDONLY);
+	if(fd < 0)
+		handle_error("error opening pidfd");
+#else 
+
 	int fd = syscall(SYS_pidfd_open, pid, 0);
 	if(fd < 0)
 		handle_error("error opening pidfd");
+#endif
 	
 	int err = setns(fd, CLONE_NEWNET);
 	if(err)
