@@ -22,7 +22,7 @@ struct {
     __type(key, int);
     __type(value, int);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
-    __uint(map_flags, BPF_F_RDONLY_PROG);
+//    __uint(map_flags, BPF_F_RDONLY_PROG);
 } dev_map SEC(".maps");
 
 

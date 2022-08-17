@@ -20,6 +20,7 @@
 #include <linux/if_ether.h>
 #include <linux/ip.h>
 #include <arpa/inet.h>
+#include <time.h>
 
 
 
@@ -222,8 +223,24 @@ void send_msg(int uds, int ifindex)
 		handle_error("error asking for bind");
 }
 
+#define NANOSEC_PER_SEC 1000000000 /* 10^9 */
+static uint64_t gettime()
+{
+	struct timespec t;
+	int res;
+
+	res = clock_gettime(CLOCK_MONOTONIC, &t);
+	if (res < 0) {
+		fprintf(stderr, "Error with gettimeofday! (%i)\n", res);
+		exit(1);
+	}
+	return (uint64_t) t.tv_sec * NANOSEC_PER_SEC + t.tv_nsec;
+}
+
+
 void dumb_poll(int xsk, void* umem, struct umem_ring *fill, struct kernel_ring *rx)
 {
+	uint64_t start_time = gettime();
 	int packets = 0;
 	int j=0; // print out stats slowly
 	while(1)
@@ -301,6 +318,12 @@ void dumb_poll(int xsk, void* umem, struct umem_ring *fill, struct kernel_ring *
 				);
 			}
 			printf("PACKETS: %d\n", packets);
+			uint64_t time = gettime();
+			double seconds_run = ((double)(time-start_time)) / NANOSEC_PER_SEC;
+			double pps = packets/seconds_run;
+			printf("pps: %lf \n", pps);
+			start_time = time;
+			packets = 0;
 		}
 
 
