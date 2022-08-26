@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <unistd.h>
+#include <locale.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <stdlib.h>
@@ -8,6 +9,7 @@
 #include <libgen.h>
 #include <linux/if_link.h>
 #include <net/if.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -22,14 +24,58 @@
 #include <arpa/inet.h>
 #include <time.h>
 
-
+struct xsk_socket {
+  int fd;
+  uint64_t rx_packets;
+  uint64_t rx_bytes;
+  uint64_t tx_packets;
+  uint64_t tx_bytes;
+};
 
 #define handle_error(msg) { fprintf(stderr, "%s %s(%d)\n", msg, strerror(errno), errno); exit(1); }
 const char* pathname = "/shared/uds";
 
 #define DEBUG 0
 #define RING_SIZE 2048
+#define NANOSEC_PER_SEC 1000000000 /* 10^9 */
 #include "xsk_ops.h" //needs RING_SIZE
+
+static uint64_t gettime()
+{
+	struct timespec t;
+	int res;
+
+	res = clock_gettime(CLOCK_MONOTONIC, &t);
+	if (res < 0) {
+		fprintf(stderr, "Error with gettimeofday! (%i)\n", res);
+		exit(1);
+	}
+	return (uint64_t) t.tv_sec * NANOSEC_PER_SEC + t.tv_nsec;
+}
+
+static void *stats_poll(void *arg)
+{
+        unsigned int interval = 2;
+        struct xsk_socket *xsk = arg;
+        setlocale(LC_NUMERIC, "en_US");
+        uint64_t prev_time = 0, prev_rx_packets = 0, cur_time, cur_rx_packets;
+        double period = 0.0, rx_pps = 0.0;
+        while (1) {
+                sleep(interval);
+                if (prev_time == 0) {
+                          prev_time = gettime();
+                          prev_rx_packets = xsk->rx_packets;
+                          continue;
+                }
+                cur_time = gettime();
+                cur_rx_packets = xsk->rx_packets;
+                period = ((double) (cur_time - prev_time) / NANOSEC_PER_SEC);
+                rx_pps = (cur_rx_packets - prev_rx_packets) / period;
+                printf("rx pps: %'10.0f\n", rx_pps);
+		prev_time = cur_time;
+		prev_rx_packets = cur_rx_packets;
+        }
+}
 
 int get_uds(const char* path)
 {
@@ -223,26 +269,16 @@ void send_msg(int uds, int ifindex)
 		handle_error("error asking for bind");
 }
 
-#define NANOSEC_PER_SEC 1000000000 /* 10^9 */
-static uint64_t gettime()
+void dumb_poll(struct xsk_socket *xsk, void* umem, struct umem_ring *fill, struct kernel_ring *rx)
 {
-	struct timespec t;
-	int res;
+	int recv_packets, num_reserved, i;
+	struct xdp_desc* desc;
+	char *pkt, *s;
+	struct ethhdr *eth;
+	struct iphdr *ipv4;
+	struct in_addr ip;
+	int64_t bytes;
 
-	res = clock_gettime(CLOCK_MONOTONIC, &t);
-	if (res < 0) {
-		fprintf(stderr, "Error with gettimeofday! (%i)\n", res);
-		exit(1);
-	}
-	return (uint64_t) t.tv_sec * NANOSEC_PER_SEC + t.tv_nsec;
-}
-
-
-void dumb_poll(int xsk, void* umem, struct umem_ring *fill, struct kernel_ring *rx)
-{
-	uint64_t start_time = gettime();
-	int packets = 0;
-	int j=0; // print out stats slowly
 	while(1)
 	{
 		if(DEBUG)
@@ -250,32 +286,34 @@ void dumb_poll(int xsk, void* umem, struct umem_ring *fill, struct kernel_ring *
 			sleep(1);
 		}
 		//printf("debugging consumer for fill: %d\n", debug_umem_cons(fill));
-		int recv_packets = xsk_kr_cons_peek(rx, RING_SIZE/3);
+		recv_packets = xsk_kr_cons_peek(rx, RING_SIZE/3);
 		if(recv_packets)
 		{
-			int num_reserved = xsk_umem_prod_reserve(fill, recv_packets);
+			num_reserved = xsk_umem_prod_reserve(fill, recv_packets);
 			if(DEBUG) {
 				printf("Recieved %d packets\n", recv_packets);
 				printf("Reserved %d slots in the umem\n", num_reserved);
 			}
-			for (int i=0; i<recv_packets; i++)
+			bytes = 0;
+			for (i=0; i<recv_packets; i++)
 			{
-				packets++;
-				struct xdp_desc* desc = xsk_kr_cons_read(rx);
+				// ++xsk->rx_packets;
+				desc = xsk_kr_cons_read(rx);
 				if(DEBUG) {
 					printf("got packet with addr %p, len %d\n",(void*) desc->addr, desc->len);
 				}
 				__u64 addr = desc->addr;
+                                bytes += desc->len;
 				__u64 original = addr &  XSK_UNALIGNED_BUF_ADDR_MASK;
 				if(DEBUG) {
 					printf("extracted addr: %p, packet offset = %p\n", addr & XSK_UNALIGNED_BUF_ADDR_MASK, (addr & XSK_UNALIGNED_BUF_ADDR_MASK) + (addr >> XSK_UNALIGNED_BUF_OFFSET_SHIFT));
 				}
-				char* pkt = (char*)umem + (addr & XSK_UNALIGNED_BUF_ADDR_MASK);
+				pkt = (char*)umem + (addr & XSK_UNALIGNED_BUF_ADDR_MASK);
 
 				if(DEBUG) {
 					printf("looking for packet at %p\n", pkt);
 				}
-				struct ethhdr *eth = (struct ethhdr *)pkt;
+				eth = (struct ethhdr *)pkt;
 				if (ntohs(eth->h_proto) != ETH_P_IP) {
 					xsk_umem_prod_write(fill, original);
 					if(DEBUG) {
@@ -283,10 +321,9 @@ void dumb_poll(int xsk, void* umem, struct umem_ring *fill, struct kernel_ring *
 					}
 					continue;
 				}
-				struct iphdr *ipv4 = (struct iphdr *)(eth + 1);
-				struct in_addr ip;
+				ipv4 = (struct iphdr *)(eth + 1);
 				memcpy(&ip, &ipv4->saddr, sizeof(ip));
-				char *s = inet_ntoa(ip);
+				s = inet_ntoa(ip);
 				if(DEBUG) {
 					printf("Got IP: %s\n", s);
 				}
@@ -294,39 +331,13 @@ void dumb_poll(int xsk, void* umem, struct umem_ring *fill, struct kernel_ring *
 			}
 			xsk_kr_cons_release(rx, recv_packets);
 			xsk_umem_prod_submit(fill, num_reserved);
+			WRITE_ONCE(xsk->rx_packets, xsk->rx_packets + recv_packets);
+			WRITE_ONCE(xsk->rx_bytes, xsk->rx_bytes + bytes);
 			if(DEBUG) {
 				printf("debugging producer for fill: %d\n", debug_umem_prod(fill));
 				printf("debugging consumer for fill: %d\n", debug_umem_cons(fill));
 			}
 		}
-
-		if(DEBUG || (j++ == 100)) {
-			struct xdp_statistics stats;
-			socklen_t optlen = sizeof(stats);
-			int err = getsockopt(xsk, SOL_XDP, XDP_STATISTICS, &stats, &optlen);
-			if (err)
-				handle_error("error getting socket stats");
-
-			if (optlen == sizeof(struct xdp_statistics)) {
-				printf("xsk stats: rx dropped %ld, rx invalid %ld, rx invalid %ld, rx ring full %ld, rx fill ring empty %ld, tx ring empty %ld\n",
-					stats.rx_dropped,
-					stats.rx_invalid_descs,
-					stats.tx_invalid_descs,
-					stats.rx_ring_full,
-					stats.rx_fill_ring_empty_descs,
-					stats.tx_ring_empty_descs
-				);
-			}
-			printf("PACKETS: %d\n", packets);
-			uint64_t time = gettime();
-			double seconds_run = ((double)(time-start_time)) / NANOSEC_PER_SEC;
-			double pps = packets/seconds_run;
-			printf("pps: %lf \n", pps);
-			start_time = time;
-			packets = 0;
-		}
-
-
 	}
 }
 
@@ -344,8 +355,16 @@ int main()
 	printf("set up rings\n");
 	int ifidx = get_ifindex();
 	send_msg(uds, ifidx);
-
-	dumb_poll(xsk, umem, &fill, &rx);
-	sleep(500);
-
+        struct xsk_socket xsk_sock;
+        memset(&xsk_sock, 0, sizeof(struct xsk_socket));
+        xsk_sock.fd = xsk;
+        int ret;
+        pthread_t stats_poll_thread;
+	printf("creating stats thread\n");
+        ret = pthread_create(&stats_poll_thread, NULL, stats_poll, &xsk_sock);
+        if (ret) {
+              handle_error("error creating stats thraed");
+        }
+	dumb_poll(&xsk_sock, umem, &fill, &rx);
+	while (1) {}
 }

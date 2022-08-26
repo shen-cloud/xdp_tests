@@ -4,6 +4,8 @@
 // mostly stolen from xsk.h
 #define __XSK_READ_ONCE(x) (*(volatile typeof(x) *)&x)
 #define __XSK_WRITE_ONCE(x, v) (*(volatile typeof(x) *)&x) = (v)
+#define WRITE_ONCE(x, v) (*(volatile typeof(x) *)&x) = (v)
+#define READ_ONCE(x) (*(volatile typeof(x) *)&x)
 
 # define smp_store_release(p, v)					\
 	do {								\
