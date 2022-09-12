@@ -41,14 +41,14 @@ int xdp_nop(struct xdp_md *ctx)
 	//int size = ctx->data_end - ctx->data;
 	struct ethhdr *eth = data;
 
-	bpf_trace_printk(fmt2, sizeof(fmt2));
+	// bpf_trace_printk(fmt2, sizeof(fmt2));
 	if(ctx->data + sizeof(struct ethhdr) > ctx->data_end)
 		return XDP_DROP;
 	__u16 h_proto = eth->h_proto;
 	if (h_proto != htons(ETH_P_IP))
 		return XDP_PASS;
 
-	bpf_trace_printk(fmt3, sizeof(fmt3));
+	// bpf_trace_printk(fmt3, sizeof(fmt3));
 	struct iphdr *iph = data + sizeof(struct ethhdr);
 	if((void*)iph  + sizeof(struct iphdr) >= data_end)
 		return XDP_DROP;
@@ -61,16 +61,16 @@ int xdp_nop(struct xdp_md *ctx)
 	int protocol = iph->protocol;
 	if(protocol != IPPROTO_UDP)
 		return XDP_PASS;
-	bpf_trace_printk(fmt4, sizeof(fmt4));
+	// bpf_trace_printk(fmt4, sizeof(fmt4));
 	struct udphdr *udr = (void*)iph + sizeof(struct iphdr);
 	if((void*)udr  + sizeof(struct udphdr) >= data_end)
 		return XDP_DROP;
 	int port1 = bpf_ntohs(udr->dest);
 	int port2 = bpf_ntohs(udr->source);
-	bpf_trace_printk(fmt1, sizeof(fmt1), port1, port2);
+	// bpf_trace_printk(fmt1, sizeof(fmt1), port1, port2);
 
 	int ret = bpf_redirect_map(&dev_map, port1, 0);
-	bpf_trace_printk(fmt5, sizeof(fmt5), ret);
+	// bpf_trace_printk(fmt5, sizeof(fmt5), ret);
 	
 	return ret;
 }

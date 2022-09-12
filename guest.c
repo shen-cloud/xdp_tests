@@ -36,7 +36,7 @@ struct xsk_socket {
 const char* pathname = "/shared/uds";
 
 #define DEBUG 0
-#define RING_SIZE 2048
+#define RING_SIZE (2048 * 8)
 #define NANOSEC_PER_SEC 1000000000 /* 10^9 */
 #include "xsk_ops.h" //needs RING_SIZE
 
@@ -64,16 +64,16 @@ static void *stats_poll(void *arg)
                 sleep(interval);
                 if (prev_time == 0) {
                           prev_time = gettime();
-                          prev_rx_packets = xsk->rx_packets;
+                          prev_rx_packets = READ_ONCE(xsk->rx_packets);
                           continue;
                 }
                 cur_time = gettime();
-                cur_rx_packets = xsk->rx_packets;
                 period = ((double) (cur_time - prev_time) / NANOSEC_PER_SEC);
-                rx_pps = (cur_rx_packets - prev_rx_packets) / period;
-                printf("rx pps: %'10.0f\n", rx_pps);
 		prev_time = cur_time;
+                cur_rx_packets = READ_ONCE(xsk->rx_packets);
+                rx_pps = (cur_rx_packets - prev_rx_packets) / period;
 		prev_rx_packets = cur_rx_packets;
+                printf("rx pps: %'10.0f\n", rx_pps);
         }
 }
 
@@ -286,7 +286,7 @@ void dumb_poll(struct xsk_socket *xsk, void* umem, struct umem_ring *fill, struc
 			sleep(1);
 		}
 		//printf("debugging consumer for fill: %d\n", debug_umem_cons(fill));
-		recv_packets = xsk_kr_cons_peek(rx, RING_SIZE/3);
+		recv_packets = xsk_kr_cons_peek(rx, RING_SIZE/4);
 		if(recv_packets)
 		{
 			num_reserved = xsk_umem_prod_reserve(fill, recv_packets);
