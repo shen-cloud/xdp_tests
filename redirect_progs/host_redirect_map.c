@@ -6,34 +6,26 @@
 #include <linux/udp.h>
 #include <bpf/bpf_endian.h>
 
-
-/*
-struct bpf_map_def SEC("maps") xdp_stats_map = {
-	.type        = BPF_MAP_TYPE_ARRAY,
-	.key_size    = 4,
-	.value_size  = 4,
-	.max_entries = 1,
-};
-
-*/
 struct {
     __uint(type, BPF_MAP_TYPE_DEVMAP_HASH);
     __uint(max_entries, 32);
     __type(key, int);
     __type(value, int);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
-//    __uint(map_flags, BPF_F_RDONLY_PROG);
+    __uint(map_flags, BPF_F_RDONLY_PROG);
 } dev_map SEC(".maps");
 
 
-static const char fmt1[] = "got udp with src port %d, dest port %d";
-static const char fmt2[] = "in host xdp ";
-static const char fmt3[] = "got an ip packet";
-static const char fmt4[] = "got a udp packet";
-static const char fmt5[] = "got %d from redirect";
+/*
+static const char fmt1[] = "got udp with src port %d, dest port %d\n";
+static const char fmt2[] = "in host xdp\n";
+static const char fmt3[] = "got an ip packet\n";
+static const char fmt4[] = "got a udp packet\n";
+static const char fmt5[] = "got %d from redirect\n";
+*/
 
 SEC("xdp")
-int xdp_nop(struct xdp_md *ctx)
+int xdp_map(struct xdp_md *ctx)
 {
 	//int idx = 0;
 	void* data = (void*)(long)ctx->data;
@@ -66,7 +58,7 @@ int xdp_nop(struct xdp_md *ctx)
 	if((void*)udr  + sizeof(struct udphdr) >= data_end)
 		return XDP_DROP;
 	int port1 = bpf_ntohs(udr->dest);
-	int port2 = bpf_ntohs(udr->source);
+	// int port2 = bpf_ntohs(udr->source);
 	// bpf_trace_printk(fmt1, sizeof(fmt1), port1, port2);
 
 	int ret = bpf_redirect_map(&dev_map, port1, 0);

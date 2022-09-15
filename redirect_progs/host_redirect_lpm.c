@@ -21,13 +21,16 @@ struct {
 } lpm_dev SEC(".maps");
 
 
+/*
 static const char fmt1[] = "looking up with key len %u, 'ip' %u\n";
 static const char fmt2[] = "in xdp";
+*/
 
 SEC("xdp")
 int xdp_nop(struct xdp_md *ctx)
 {
-	bpf_trace_printk(fmt2, sizeof(fmt2));
+	// bpf_trace_printk(fmt2, sizeof(fmt2));
+	// return XDP_PASS;
 	//int idx = 0;
 	void* data = (void*)(long)ctx->data;
 	void* data_end = (void*)(long)ctx->data_end;
@@ -59,9 +62,9 @@ int xdp_nop(struct xdp_md *ctx)
 	if((void*)udr  + sizeof(struct udphdr) >= data_end)
 		return XDP_DROP;
 	int port1 = bpf_ntohs(udr->dest);
-	int port2 = bpf_ntohs(udr->source);
-	struct key k = {.prefixlen=4, .ip=port1};
-	bpf_trace_printk(fmt1, sizeof(fmt1), k.prefixlen, k.ip);
+	// int port2 = bpf_ntohs(udr->source);
+	struct key k = {.prefixlen=32, .ip=port1};
+	// bpf_trace_printk(fmt1, sizeof(fmt1), k.prefixlen, k.ip);
 	int *value = bpf_map_lookup_elem(&lpm_dev, &k);
 	if(value)
 	{

@@ -17,11 +17,11 @@ struct bpf_map_def SEC("maps") xdp_stats_map = {
 */
 struct {
     __uint(type, BPF_MAP_TYPE_XSKMAP);
-    __uint(max_entries, 64);
+    __uint(max_entries, 1);
     __type(key, int);
     __type(value, int);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
-} xsk_map SEC(".maps");
+} xsk_map1 SEC(".maps");
 
 char fmt1[] = "in xdp program\n";
 char fmt2[] = "found a hit in the map\n";
@@ -34,7 +34,7 @@ int xdp_redirect(struct xdp_md *ctx)
 	int idx = 0;
 
 	// bpf_trace_printk(fmt1, sizeof(fmt1));
-	int result =  bpf_redirect_map(&xsk_map, idx, XDP_PASS);
+	int result =  bpf_redirect_map(&xsk_map1, idx, XDP_PASS);
 	//bpf_trace_printk(fmt3, sizeof(fmt3), result);
 	/*
 	int* rec = bpf_map_lookup_elem(&xsk_map, &idx);
