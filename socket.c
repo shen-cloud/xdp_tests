@@ -393,10 +393,16 @@ int main(int argc, char** argv)
 {
 
 	if (argc != 4)
+	{
 		printf("usage: socket.o map_path map_key xsk_map_name");
+		return -1;
+	}
 	int map_key = atoi(argv[2]);
 	if (map_key == 0)
+	{
 		printf("usage: socket.o map_path map_key xsk_map_name");
+		return -1;
+	}
 
 	char* xsk_map_name = argv[3];
 	printf("getting uds \n");
@@ -415,6 +421,7 @@ int main(int argc, char** argv)
 	bind_xsk(xsk, ifidxs.container);
 	load_xdp_program("./guest_prog.o", "xdp");
 	add_to_xsk_map(xsk, xsk_map_name, pid);
+	printf("Done\n");
 
 	// char* args[] = {"/bin/bash", NULL};
 	// execvp(args[0], args);
