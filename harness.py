@@ -47,6 +47,10 @@ def main():
     print(procs)
 
 
+    for i, p in enumerate(procs):
+        dump = p.recv()
+        print(f"dumped string from start of process {i}: {dump}")
+
     try:
         j=0
         while(all([ p.can_recv() for p in procs]) or not any([p.poll() for p in procs])):
