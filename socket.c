@@ -36,6 +36,11 @@ struct ifpair
 	int host;
 };
 
+static inline __u64 ptr_to_u64(const void *ptr)
+{
+        return (__u64) (unsigned long) ptr;
+}
+
 int make_uds(const char* path)
 {
 	unlink(path);
@@ -269,7 +274,7 @@ void add_to_xsk_map(int xsk, const char* xsk_map_name, int container_pid)
 	if(access(buf, F_OK) == 0)
 	{
 		memset(&attr, 0, sizeof(attr));
-		attr.pathname = ((void *)buf);
+		attr.pathname = ptr_to_u64(((void *)buf));
 
 		map = syscall(__NR_bpf, BPF_OBJ_GET, &attr, sizeof(attr));
 		if(map < 0)
@@ -313,8 +318,8 @@ void add_to_xsk_map(int xsk, const char* xsk_map_name, int container_pid)
 	}
 	memset(&attr, 0, sizeof(attr));
 	attr.map_fd = map;
-	attr.key = &queue;
-	attr.value = &fd_copy;
+	attr.key = ptr_to_u64(&queue);
+	attr.value = ptr_to_u64(&fd_copy);
 	attr.flags = BPF_ANY;
 	int err = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &attr, sizeof(attr));
 	if(err)
@@ -334,7 +339,7 @@ void add_to_dev_map(const char* dev_map_path, int port, int ifidx)
 	printf("adding key, value %d, %d to map at %s\n", port, ifidx, dev_map_path);
 
 	memset(&attr, 0, sizeof(attr));
-	attr.pathname = ((void *)dev_map_path);
+	attr.pathname = ptr_to_u64(((void *)dev_map_path));
 
 	int fd = syscall(__NR_bpf, BPF_OBJ_GET, &attr, sizeof(attr));
 	if(fd < 0)
@@ -343,8 +348,8 @@ void add_to_dev_map(const char* dev_map_path, int port, int ifidx)
 	printf("got a fd to the map at %d\n", fd);
 	memset(&attr, 0, sizeof(attr));
 	attr.map_fd = fd;
-	attr.key = &port_copy;
-	attr.value = &idx_copy;
+	attr.key = ptr_to_u64(&port_copy);
+	attr.value = ptr_to_u64(&idx_copy);
 	attr.flags = BPF_ANY;
 	int err = syscall(__NR_bpf, BPF_MAP_UPDATE_ELEM, &attr, sizeof(attr));
 	if(err)
