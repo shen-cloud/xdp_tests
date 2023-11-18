@@ -32,6 +32,8 @@ struct xsk_socket {
   uint64_t tx_bytes;
 };
 
+typedef unsigned long     uintptr_t;
+
 #define handle_error(msg) { fprintf(stderr, "%s %s(%d)\n", msg, strerror(errno), errno); exit(1); }
 const char* pathname = "/shared/uds";
 
@@ -51,6 +53,11 @@ static uint64_t gettime()
 		exit(1);
 	}
 	return (uint64_t) t.tv_sec * NANOSEC_PER_SEC + t.tv_nsec;
+}
+
+static inline __u64 ptr_to_u64(const void *ptr)
+{
+        return (__u64) (unsigned long) ptr;
 }
 
 static void *stats_poll(void *arg)
@@ -143,7 +150,7 @@ void* set_umem(int xsk, long size)
 	if(umem == (void *) -1)
 		handle_error("mapping umem failed");
 
-	struct xdp_umem_reg umem_reg = {.addr = umem, 
+	struct xdp_umem_reg umem_reg = {.addr = ptr_to_u64(umem), 
 		                        .len = size, 
 					.chunk_size=4096, 
 					.headroom=0};
@@ -306,7 +313,7 @@ void dumb_poll(struct xsk_socket *xsk, void* umem, struct umem_ring *fill, struc
                                 bytes += desc->len;
 				__u64 original = addr &  XSK_UNALIGNED_BUF_ADDR_MASK;
 				if(DEBUG) {
-					printf("extracted addr: %p, packet offset = %p\n", addr & XSK_UNALIGNED_BUF_ADDR_MASK, (addr & XSK_UNALIGNED_BUF_ADDR_MASK) + (addr >> XSK_UNALIGNED_BUF_OFFSET_SHIFT));
+					printf("extracted addr: %p, packet offset = %p\n", (void *)(uintptr_t) (addr & XSK_UNALIGNED_BUF_ADDR_MASK), (void *)(uintptr_t) ((addr & XSK_UNALIGNED_BUF_ADDR_MASK) + (addr >> XSK_UNALIGNED_BUF_OFFSET_SHIFT)));
 				}
 				pkt = (char*)umem + (addr & XSK_UNALIGNED_BUF_ADDR_MASK);
 
