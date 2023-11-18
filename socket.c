@@ -145,7 +145,7 @@ void send_fd(int uds, int xsk)
 
 int get_pid(int uds)
 {
-	int len;
+	socklen_t len;
 	struct ucred ucred;
 
 	len = sizeof(struct ucred);
@@ -375,7 +375,7 @@ void exec_as_child(const char** args, int num_args)
 			printf("%s, ", args[i]);
 		}
 		printf(">\n");
-		execvp(args[0], args);
+		execvp(args[0], (char *const *)args)
 		printf("UNREACHABLE!!!\n");
 	}
 	else
