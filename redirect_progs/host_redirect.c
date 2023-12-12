@@ -25,7 +25,7 @@ struct {
 //    __uint(map_flags, BPF_F_RDONLY_PROG);
 } dev_map SEC(".maps");
 
-
+#define DEBUG 0
 /*
 static const char fmt1[] = "got udp with src port %d, dest port %d";
 static const char fmt2[] = "in host xdp ";
@@ -42,15 +42,23 @@ int xdp_nop(struct xdp_md *ctx)
 	void* data_end = (void*)(long)ctx->data_end;
 	//int size = ctx->data_end - ctx->data;
 	struct ethhdr *eth = data;
+#if DEBUG
+	const char fmt1[] = "got udp with src port %d, dest port %d\n";
+	const char fmt2[] = "in host xdp \n";
+	const char fmt3[] = "got an ip packet\n";
+	const char fmt4[] = "got a udp packet\n";
+	const char fmt5[] = "got %d from redirect";
 
-	// bpf_trace_printk(fmt2, sizeof(fmt2));
+	bpf_trace_printk(fmt2, sizeof(fmt2));
+#endif
 	if(ctx->data + sizeof(struct ethhdr) > ctx->data_end)
 		return XDP_DROP;
 	__u16 h_proto = eth->h_proto;
 	if (h_proto != htons(ETH_P_IP))
 		return XDP_PASS;
-
-	// bpf_trace_printk(fmt3, sizeof(fmt3));
+#if DEBUG
+	bpf_trace_printk(fmt3, sizeof(fmt3));
+#endif
 	struct iphdr *iph = data + sizeof(struct ethhdr);
 	if((void*)iph  + sizeof(struct iphdr) >= data_end)
 		return XDP_DROP;
@@ -63,16 +71,24 @@ int xdp_nop(struct xdp_md *ctx)
 	int protocol = iph->protocol;
 	if(protocol != IPPROTO_UDP)
 		return XDP_PASS;
-	// bpf_trace_printk(fmt4, sizeof(fmt4));
+
+#if DEBUG
+	bpf_trace_printk(fmt4, sizeof(fmt4));
+#endif
 	struct udphdr *udr = (void*)iph + sizeof(struct iphdr);
 	if((void*)udr  + sizeof(struct udphdr) >= data_end)
 		return XDP_DROP;
 	int port1 = bpf_ntohs(udr->dest);
-	// int port2 = bpf_ntohs(udr->source);
-	// bpf_trace_printk(fmt1, sizeof(fmt1), port1, port2);
+#if DEBUG
+	int port2 = bpf_ntohs(udr->source);
+	bpf_trace_printk(fmt1, sizeof(fmt1), port2, port1);
+#endif
 	int *value = bpf_map_lookup_elem(&dev_map, &port1);
 	if(value)
 	{
+#if DEBUG
+		bpf_trace_printk(fmt5, sizeof(fmt5), *value);
+#endif
 		return bpf_redirect(*value, 0);
 	}
 	else

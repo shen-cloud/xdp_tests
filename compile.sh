@@ -7,5 +7,6 @@ clang -O2 -g -Wall -target bpf -c redirect_progs/host_redirect.c -o xdp_prog.o
 clang -O2 -g -Wall -target bpf -c redirect_progs/host_redirect_map.c -o xdp_prog_map.o
 clang -O2 -g -Wall -target bpf -c redirect_progs/host_redirect_lpm.c -o xdp_prog_lpm.o
 clang -O2 -g -Wall -target bpf -c guest_redirect.c -o guest_prog.o
+clang -O2 -g -Wall -target bpf -c xdp_stats.c -o xdp_stats.o
 
-mv ./guest.o /tmp/container1/guest.o
+cp ./guest.o /tmp/container1/guest.o

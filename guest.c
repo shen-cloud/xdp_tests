@@ -23,6 +23,7 @@
 #include <linux/ip.h>
 #include <arpa/inet.h>
 #include <time.h>
+#include "config.h"
 
 struct xsk_socket {
   int fd;
@@ -32,10 +33,26 @@ struct xsk_socket {
   uint64_t tx_bytes;
 };
 
-#define handle_error(msg) { fprintf(stderr, "%s %s(%d)\n", msg, strerror(errno), errno); exit(1); }
-const char* pathname = "/shared/uds";
+// #define HOST_MODE
 
-#define DEBUG 0
+#define handle_error(msg) { fprintf(stderr, "%s %s(%d)\n", msg, strerror(errno), errno); exit(1); }
+#ifdef HOST_MODE
+const char* pathname = "/tmp/container1/uds";
+#else
+const char* pathname = "/shared/uds";
+#endif
+
+// #define ROCKY
+
+#ifdef ROCKY
+typedef unsigned long     uintptr_t;
+static inline __u64 ptr_to_u64(const void *ptr)
+{
+	return (__u64) (unsigned long) ptr;
+}
+#endif
+
+// #define DEBUG 0
 #define RING_SIZE (2048 * 8)
 #define NANOSEC_PER_SEC 1000000000 /* 10^9 */
 #include "xsk_ops.h" //needs RING_SIZE
@@ -142,11 +159,17 @@ void* set_umem(int xsk, long size)
 			  -1, 0);
 	if(umem == (void *) -1)
 		handle_error("mapping umem failed");
-
+#ifdef ROCKY
+	struct xdp_umem_reg umem_reg = {.addr = ptr_to_u64(umem), 
+                                        .len = size, 
+                                        .chunk_size=4096, 
+                                        .headroom=0};
+#else
 	struct xdp_umem_reg umem_reg = {.addr = umem, 
 		                        .len = size, 
 					.chunk_size=4096, 
 					.headroom=0};
+#endif
 	if(setsockopt(xsk, SOL_XDP, XDP_UMEM_REG, &umem_reg, sizeof(umem_reg))){
 		handle_error("setting umem failed");
 	}
@@ -246,7 +269,15 @@ void setup_rings(int xsk, struct umem_ring *fill, struct umem_ring *com, struct 
 int get_ifindex()
 {
 	char buf[16];
+#ifdef HOST_MODE
+#ifdef ROCKY
+	int ifidx_file = open("/sys/class/net/ens1f0/ifindex", O_RDONLY);
+#else
+	int ifidx_file = open("/sys/class/net/ens1f0np0/ifindex", O_RDONLY);
+#endif
+#else
 	int ifidx_file = open("/sys/class/net/eth0/ifindex", O_RDONLY);
+#endif
 	if(ifidx_file < 0)
 		handle_error("error opening eth0 ifindex file");
 	int err = read(ifidx_file, buf, sizeof(buf));
@@ -305,9 +336,6 @@ void dumb_poll(struct xsk_socket *xsk, void* umem, struct umem_ring *fill, struc
 				__u64 addr = desc->addr;
                                 bytes += desc->len;
 				__u64 original = addr &  XSK_UNALIGNED_BUF_ADDR_MASK;
-				if(DEBUG) {
-					printf("extracted addr: %p, packet offset = %p\n", addr & XSK_UNALIGNED_BUF_ADDR_MASK, (addr & XSK_UNALIGNED_BUF_ADDR_MASK) + (addr >> XSK_UNALIGNED_BUF_OFFSET_SHIFT));
-				}
 				pkt = (char*)umem + (addr & XSK_UNALIGNED_BUF_ADDR_MASK);
 
 				if(DEBUG) {
